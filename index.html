@@ -2198,7 +2198,7 @@ async function loadMine() {
 }
 async function pull(force) {
   if (cloud.sess) await syncOwn();
-  const jobs = [api('/rest/v1/shelters?select=*&limit=1000', { anon: true }), api('/rest/v1/dogs?select=*&status=in.(available,hold)&order=created_at&limit=2000', { anon: !cloud.sess })];
+  const jobs = [api('/rest/v1/shelters?select=*&limit=1000', { anon: true }), api('/rest/v1/dogs?select=*&status=in.(available,hold)&order=intake_date.desc&limit=2000', { anon: !cloud.sess })];
   if (cloud.sess && cloud.shelter) jobs.push(api('/rest/v1/inquiries?select=*&order=created_at.desc&limit=500'), api('/rest/v1/outcomes?select=*&order=created_at.desc&limit=2000'));
   const [sh, dg, iq, ou] = await Promise.all(jobs);
   const sig = JSON.stringify([sh, dg, iq, ou]);
@@ -2213,7 +2213,8 @@ async function pull(force) {
   if (ou) { const mo = ou.map(fromOut); mo.forEach((o) => { cloud.pushedOut[o.id] = JSON.stringify(outRow(o, cloud.shelter.id)); }); state.outcomes = state.outcomes.filter((o) => o.sid !== MY_SHELTER).concat(mo); }
   return true;
 }
-const pullSoon = async (force) => { cloud.chain = cloud.chain.then(() => pull(force)).catch((e) => { setSync('Could not reach the server: ' + e.message, true); return false; }); const changed = await cloud.chain; if (changed) { buildQueue(); updateBadges(); rerender(); } };
+const showNote = (m) => { const n = document.getElementById('modeNote'); if (n) n.textContent = m; };
+const pullSoon = async (force) => { cloud.chain = cloud.chain.then(() => pull(force)).catch((e) => { setSync('Could not reach the server: ' + e.message, true); showNote('Live pilot, but the dog list could not be loaded: ' + e.message); return false; }); const changed = await cloud.chain; if (changed) { buildQueue(); updateBadges(); rerender(); } };
 
 /* ---------- push: the signed-in shelter's own changes ---------- */
 function setSync(msg, bad) { cloud.syncMsg = msg; cloud.syncBad = !!bad; const el = document.getElementById('syncchip'); if (el) { el.textContent = msg; el.classList.toggle('bad', !!bad); } }
@@ -2276,7 +2277,7 @@ async function cloudInit() {
   if (!cloud.sess) { try { cloud.sess = await store.get('sess'); } catch (_) {} }
   try {
     if (cloud.sess) { await refreshSess(); await afterSignIn(); } else await pull(true);
-  } catch (e) { if (cloud.sess && e.status !== 401 && e.status !== 403 && !/No shelter/.test(e.message)) setSync('Could not reach the server: ' + e.message, true); else { dropSess(); MY_SHELTER = 0; state.auth = false; } try { await pull(true); } catch (_) {} }
+  } catch (e) { if (cloud.sess && e.status !== 401 && e.status !== 403 && !/No shelter/.test(e.message)) setSync('Could not reach the server: ' + e.message, true); else { dropSess(); MY_SHELTER = 0; state.auth = false; } try { await pull(true); } catch (e2) { showNote('Live pilot, but the dog list could not be loaded: ' + e2.message); } }
   buildQueue(); updateBadges(); persist(); rerender(); retryInquiries();
 }
 
