@@ -1935,21 +1935,23 @@ function renderBrowse() {
   el.innerHTML = head + (B.tab === 'shelter' ? shelterTab() : B.tab === 'filter' ? filterTab() : seniorTab());
   if (fk) { const n = el.querySelector('[data-fk="' + fk + '"]'); if (n) n.focus({ preventScroll: true }); }
 }
+const shelterDetails = (s) => '<div class="help" style="margin-top:6px;line-height:1.6"><div><b>Location:</b> ' + esc((s.address ? s.address + ', ' : '') + 'ZIP ' + s.zip) + '</div>' + (s.contact ? '<div><b>Contact:</b> ' + esc(s.contact) + '</div>' : '') + (s.email ? '<div><b>Email:</b> ' + esc(s.email) + '</div>' : '') + (s.phone ? '<div><b>Phone:</b> ' + esc(s.phone) + '</div>' : '') + '<div><b>Status:</b> ' + (s.verified ? 'Verified by Tailwise' : 'Not yet verified') + '</div></div>';
+const dogCountText = (n) => (n === 0 ? '0 dogs at this shelter right now' : n + (n === 1 ? ' dog' : ' dogs') + ' at this shelter');
 function shelterTab() {
   const B = state.browse, inRange = SHELTERS.filter(near).map((s) => ({ s, d: dist(s) })).sort((a, b) => a.d - b.d);
   const sel = B.shelter && inRange.filter((x) => x.s.id === B.shelter)[0];
   if (sel) {
     const dogs = rankDogs(activeDogs().filter((d) => d.sid === sel.s.id)); state.browse.last = dogs;
     return '<div class="row-head"><button class="linkbtn" data-act="b-back">&larr; All shelters</button>' + (dogs.length ? '<button class="btn small" data-act="swipe-these">Swipe their dogs</button>' : '') + '</div>' +
-      '<div class="panel tight"><h3>' + esc(sel.s.name) + '</h3><p class="help">' + esc(sel.s.kind) + ' · ' + sel.d + ' mi · ' + dogs.length + ' dogs listed</p></div>' +
-      (dogs.length ? '<div class="cols">' + dogs.map(dogRowHTML).join('') + '</div>' : emptyBox('No dogs listed here right now.', 'Check back soon.'));
+      '<div class="panel tight"><h3>' + esc(sel.s.name) + '</h3><p class="help">' + esc(sel.s.kind) + ' · ' + sel.d + ' mi away · ' + dogCountText(dogs.length) + '</p>' + shelterDetails(sel.s) + '</div>' +
+      (dogs.length ? '<div class="cols">' + dogs.map(dogRowHTML).join('') + '</div>' : emptyBox('0 dogs at this shelter right now.', 'The shelter has not listed any dogs yet. Check back soon.'));
   }
   if (!inRange.length) return emptyBox('No shelters in range.', 'Try a wider radius.', '<button class="btn" data-act="widen">Search 50 miles</button>');
   return '<div class="cols">' + inRange.map((x) => {
     const dogs = activeDogs().filter((d) => d.sid === x.s.id), urg = dogs.filter(isUrgent).length, sen = dogs.filter(isSenior).length;
     return '<div class="row' + (urg ? ' urgent' : '') + '"><div class="row-head"><h3>' + esc(x.s.name) + '</h3><span class="facts">' + x.d + ' mi</span></div>' +
-      '<span class="help">' + esc(x.s.kind) + ' · ' + dogs.length + ' dogs · ' + sen + ' senior' + (urg ? ' · ' + urg + ' on the euthanasia list' : '') + '</span>' +
-      '<div class="row-actions"><button class="btn small" data-act="b-shelter" data-sid="' + x.s.id + '">See their dogs</button><button class="btn small ghost" data-act="see-shelter" data-sid="' + x.s.id + '">Swipe their dogs</button></div></div>';
+      '<span class="help">' + esc(x.s.kind) + ' · <b>' + dogCountText(dogs.length) + '</b>' + (dogs.length ? ' · ' + sen + ' senior' + (urg ? ' · ' + urg + ' on the euthanasia list' : '') : '') + '</span>' + shelterDetails(x.s) +
+      '<div class="row-actions"><button class="btn small" data-act="b-shelter" data-sid="' + x.s.id + '">' + (dogs.length ? 'See their dogs' : 'See shelter') + '</button>' + (dogs.length ? '<button class="btn small ghost" data-act="see-shelter" data-sid="' + x.s.id + '">Swipe their dogs</button>' : '') + '</div></div>';
   }).join('') + '</div>';
 }
 function passesFilters(d) {
@@ -2162,7 +2164,8 @@ async function absorbHash() {
 /* ---------- row mapping ---------- */
 const nn = (v) => (v === true || v === false ? v : null);
 function shelterRow(s) { return { name: s.name, kind: s.kind, zip: s.zip, lat: s.lat, lon: s.lon, address: s.address || '', contact: s.contact, email: s.email, phone: s.phone || '' }; }
-function fromShelter(r) { return { id: numId(r.id), cid: r.id, name: r.name, kind: r.kind, zip: r.zip, lat: r.lat, lon: r.lon, address: r.address || '', contact: r.contact, email: r.email, phone: r.phone || '', verified: !!r.verified, owner: r.owner_id }; }
+function fromShelter(r) { const pt = r.lat == null || r.lon == null ? zipPoint(r.zip) : null; /* a row missing coordinates still gets a distance from its ZIP */
+  return { id: numId(r.id), cid: r.id, name: r.name, kind: r.kind, zip: r.zip, lat: pt ? pt[0] : r.lat, lon: pt ? pt[1] : r.lon, address: r.address || '', contact: r.contact, email: r.email, phone: r.phone || '', verified: !!r.verified, owner: r.owner_id }; }
 function dogRow(d, shelterCid) {
   const w = +d.w, a = +d.age; if (!(w > 0 && w < 300) || !(a >= 0 && a < 30) || !d.name) return null;
   return { id: d.cid, shelter_id: shelterCid, name: d.name, sex: d.sex || '', weight_lb: w, age_years: a, mix: d.mix || 'Mixed breed', energy: d.energy || 2, apt: nn(d.apt), kids: nn(d.kids), cats: nn(d.cats), dogs_ok: nn(d.dogs), house: d.house || '', leash: d.leash || '',
@@ -2204,7 +2207,7 @@ async function pull(force) {
   SHELTERS = sh.map(fromShelter); DOGS = dg.map(fromDog);
   if (cloud.shelter) { const mine = SHELTERS.filter((s) => s.cid === cloud.shelter.id)[0]; if (mine) cloud.shelter = Object.assign({}, cloud.shelter, { verified: mine.verified }); }
   cloud.pushed = {}; DOGS.forEach((d) => { if (cloud.shelter && d.sid === MY_SHELTER) { const row = dogRow(d, cloud.shelter.id); if (row) cloud.pushed[d.cid] = JSON.stringify(row); cloud.known[d.cid] = 1; } });
-  { const ms = cloud.shelter && SHELTERS.filter((s) => s.cid === cloud.shelter.id)[0]; cloud.pushedShelter = ms ? JSON.stringify(shelterRow(ms)) : ''; }
+  { const raw = cloud.shelter && sh.filter((x) => x.id === cloud.shelter.id)[0], ms = cloud.shelter && SHELTERS.filter((s) => s.cid === cloud.shelter.id)[0]; cloud.pushedShelter = raw ? JSON.stringify(shelterRow(raw)) : ''; if (raw && ms && JSON.stringify(shelterRow(ms)) !== cloud.pushedShelter) cloudSoon(); }
   if (iq) { const mineI = iq.map(fromInq), ids = {}; mineI.forEach((q) => { ids[q.id] = 1; cloud.pushedInq[q.id] = DB_INQ[q.status]; });
     state.inquiries = state.inquiries.filter((q) => !ids[q.id] && !(q.cloud && shelter(dogById(q.dogId) ? dogById(q.dogId).sid : 0).id === MY_SHELTER)).concat(mineI); }
   if (ou) { const mo = ou.map(fromOut); mo.forEach((o) => { cloud.pushedOut[o.id] = JSON.stringify(outRow(o, cloud.shelter.id)); }); state.outcomes = state.outcomes.filter((o) => o.sid !== MY_SHELTER).concat(mo); }
